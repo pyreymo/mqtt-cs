@@ -28,7 +28,7 @@
 
 ```bash
 # 克隆主仓库
-git clone <your-repository-url> mqtt-cs
+git clone https://github.com/pyreymo/mqtt-cs
 cd mqtt-cs
 
 # 初始化并拉取子模块
