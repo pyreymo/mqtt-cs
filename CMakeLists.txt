@@ -1,50 +1,74 @@
+# Set the minimum required version of CMake for this project.
 cmake_minimum_required(VERSION 3.12)
+
+# Define the project name and specify the languages it uses (C++ and C).
 project(MyMqttProject LANGUAGES CXX C)
 
+# Set the C++ standard to C++17 and enforce it.
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 1. 配置并引入 MQTT-C 子项目
+# 1. Configure and include the MQTT-C subproject.
+# These options are specific to the MQTT-C library's own CMakeLists.txt.
+# We set them as CACHE variables with FORCE to ensure our settings override their defaults.
 set(MQTT_C_EXAMPLES OFF CACHE BOOL "Disable MQTT-C examples" FORCE)
 set(MQTT_C_TESTS OFF CACHE BOOL "Disable MQTT-C tests" FORCE)
+
+# Include the MQTT-C project from the third_party directory. This makes its
+# targets (like the 'mqttc' library) available to our project.
 add_subdirectory(third_party/MQTT-C)
 
-# 2. 创建我们的平台抽象库
-# 这个库封装了所有平台相关的网络代码和 PAL 实现
+
+# 2. Create our platform abstraction library.
+# This library encapsulates all platform-specific networking code and the
+# implementation of the MQTT-C Platform Abstraction Layer (PAL).
 add_library(mqtt_platform)
 
-# 添加与平台无关的公共源文件
+# Add the platform-independent source files to the library.
+# These are PRIVATE because they are part of the library's implementation.
 target_sources(mqtt_platform PRIVATE src/platform/mqtt_network.cpp)
 
-# 公开 'src' 目录作为包含路径，这样客户端代码 (#include "platform/mqtt_network.h") 才能找到头文件
+# Expose the 'src' directory as a PUBLIC include path. This allows client code
+# (like our executables) to find the library's headers, e.g., #include "platform/mqtt_network.h".
 target_include_directories(mqtt_platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-# 因为 mqtt_platform 的公共头文件 (mqtt_network.h) 包含了 mqttc 的头文件 (mqtt_pal.h),
-# 所以这个链接依赖必须是 PUBLIC。
-# 这将确保任何链接到 mqtt_platform 的目标（如 publisher）也能找到 mqttc 的头文件。
+# Because the public header of mqtt_platform (mqtt_network.h) includes a header
+# from mqttc (mqtt_pal.h), this link dependency must be PUBLIC.
+# This ensures that any target linking against mqtt_platform (like our 'publisher'
+# executable) will also get the include directories and link dependencies of 'mqttc'.
 target_link_libraries(mqtt_platform PUBLIC mqttc)
 
-# 3. 添加平台相关的源文件和依赖
+
+# 3. Add platform-specific source files and dependencies.
 if(UNIX AND NOT APPLE) # Linux
     message(STATUS "Configuring for Linux")
+    # Add the POSIX-specific source files for the PAL implementation.
     target_sources(mqtt_platform PRIVATE
         src/platform/detail/network_posix.cpp
         src/platform/pal_posix.cpp
     )
+
+    # Find the standard threads library.
     find_package(Threads REQUIRED)
-    # 线程库是 mqtt_platform 的内部实现细节，所以是 PRIVATE
+
+    # The threads library is an internal implementation detail of mqtt_platform,
+    # so we link it as PRIVATE. Consumers of mqtt_platform don't need to link
+    # against pthreads directly.
     target_link_libraries(mqtt_platform PRIVATE Threads::Threads)
 else()
     message(FATAL_ERROR "Unsupported platform for mqtt_platform library")
 endif()
 
 
-# 4. 定义可执行文件
+# 4. Define the executables.
 add_executable(publisher src/publisher.cpp)
 add_executable(subscriber src/subscriber.cpp)
 
-# 5. 链接可执行文件到我们的平台库
-# publisher 和 subscriber 本身不直接暴露 mqtt_platform 的 API，所以这里使用 PRIVATE 是正确的。
-# CMake 会自动处理从 mqtt_platform 传递过来的 PUBLIC 依赖 (即 mqttc)。
+
+# 5. Link the executables against our platform library.
+# The 'publisher' and 'subscriber' executables themselves don't export the
+# mqtt_platform API further, so using PRIVATE is correct here.
+# CMake will automatically handle the transitive PUBLIC dependency from
+# mqtt_platform (i.e., it will correctly link the executables against 'mqttc' as well).
 target_link_libraries(publisher PRIVATE mqtt_platform)
 target_link_libraries(subscriber PRIVATE mqtt_platform)
